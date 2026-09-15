@@ -4,12 +4,14 @@ import { SlidersHorizontal, Check } from 'lucide-react';
 
 interface ProviderPillsBarProps {
   selectedProviders: string[];
+  loadingProviders?: string[];
   onToggleProvider: (id: string) => void;
   onOpenModal: () => void;
 }
 
 export const ProviderPillsBar: React.FC<ProviderPillsBarProps> = ({
   selectedProviders,
+  loadingProviders = [],
   onToggleProvider,
   onOpenModal,
 }) => {
@@ -21,7 +23,7 @@ export const ProviderPillsBar: React.FC<ProviderPillsBarProps> = ({
       <button
         id="btn-open-filter-modal-pill"
         onClick={onOpenModal}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0 bg-stone-900 text-stone-100 hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-200 transition-all shadow-xs"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold shrink-0 bg-stone-900 text-stone-100 hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-200 transition-all shadow-xs cursor-pointer"
       >
         <SlidersHorizontal className="w-3.5 h-3.5" />
         <span>Quellen ({selectedProviders.length})</span>
@@ -31,19 +33,21 @@ export const ProviderPillsBar: React.FC<ProviderPillsBarProps> = ({
 
       {GERMAN_NEWS_PROVIDERS.map((provider) => {
         const isSelected = selectedProviders.includes(provider.id);
+        const isLoading = loadingProviders.includes(provider.id);
+
         return (
           <button
             key={provider.id}
             id={`pill-provider-${provider.id}`}
             onClick={() => onToggleProvider(provider.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all border ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-colors border cursor-pointer ${
               isSelected
-                ? 'bg-amber-400/90 text-stone-900 border-amber-500 shadow-xs font-bold'
+                ? 'bg-amber-400 text-stone-900 border-amber-500 shadow-xs font-bold'
                 : 'bg-white/80 dark:bg-stone-800/80 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700'
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-2 h-2 rounded-full shrink-0 ${
                 isSelected ? 'bg-stone-900' : 'bg-stone-400 dark:bg-stone-500'
               }`}
             />

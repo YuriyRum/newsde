@@ -15,7 +15,7 @@ import { ArticleReaderModal } from './components/ArticleReaderModal.tsx';
 import { SavedArticlesDrawer } from './components/SavedArticlesDrawer.tsx';
 import { MobileBottomNav } from './components/MobileBottomNav.tsx';
 import { CATEGORY_NAMES, matchesCategory } from './utils/categories.ts';
-import { fetchNewsFeed } from './services/newsService.ts';
+import { streamNewsFeed, getInstantCachedNews } from './services/newsService.ts';
 import { FALLBACK_NEWS_ITEMS } from './data/fallbackNews.ts';
 import {
   RotateCw,
@@ -28,6 +28,7 @@ import {
   Sparkles,
   ArrowUp,
   Inbox,
+  Loader2,
 } from 'lucide-react';
 
 const DEFAULT_PROVIDERS = ['tagesschau', 'dw', 'zdf', 'dlf', 'spiegel', 'zeit'];
@@ -79,12 +80,21 @@ export default function App() {
     }
   });
 
-  // --- Dynamic Feed State ---
-  const [items, setItems] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  // --- Dynamic Feed State (Initialized instantly with cached/offline items for 0ms visual delay) ---
+  const [items, setItems] = useState<NewsItem[]>(() => {
+    try {
+      const savedProviders = localStorage.getItem('deutschland_news_providers');
+      const provs = savedProviders ? JSON.parse(savedProviders) : DEFAULT_PROVIDERS;
+      return getInstantCachedNews(provs);
+    } catch {
+      return getInstantCachedNews(DEFAULT_PROVIDERS);
+    }
+  });
+  const [loading, setLoading] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [loadingProviders, setLoadingProviders] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(() => new Date());
 
   // --- Filters & Modals State ---
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -139,48 +149,50 @@ export default function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Fetch News using SPA News Service (works client-side & on Netlify)
+  // Fetch News progressively via WebWorker / independent stream
   const fetchNews = useCallback(
-    async (forceRefresh = false) => {
+    (forceRefresh = false) => {
       if (selectedProviders.length === 0) {
         setItems([]);
         setLoading(false);
-        return;
+        setLoadingProviders([]);
+        return () => {};
       }
 
       if (forceRefresh) {
         setIsRefreshing(true);
-      } else {
-        setLoading(true);
       }
       setError(null);
+      setLoadingProviders([...selectedProviders]);
 
-      try {
-        const news = await fetchNewsFeed(selectedProviders);
-        if (Array.isArray(news) && news.length > 0) {
-          setItems(news);
+      const cancel = streamNewsFeed(selectedProviders, {
+        forceRefresh,
+        onProviderLoaded: (providerId, _provItems, allCurrentItems) => {
+          setLoadingProviders((prev) => prev.filter((p) => p !== providerId));
+          setItems(allCurrentItems);
+          setLoading(false);
           setLastUpdated(new Date());
-        } else {
-          const fallback = FALLBACK_NEWS_ITEMS.filter((item) => selectedProviders.includes(item.providerId));
-          setItems(fallback.length > 0 ? fallback : FALLBACK_NEWS_ITEMS);
+        },
+        onAllFinished: (allItems) => {
+          setItems(allItems);
+          setLoading(false);
+          setIsRefreshing(false);
+          setLoadingProviders([]);
           setLastUpdated(new Date());
-        }
-      } catch (err: any) {
-        console.warn('News feed fetch notice:', err);
-        const fallback = FALLBACK_NEWS_ITEMS.filter((item) => selectedProviders.includes(item.providerId));
-        setItems(fallback.length > 0 ? fallback : FALLBACK_NEWS_ITEMS);
-        setLastUpdated(new Date());
-      } finally {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
+        },
+      });
+
+      return cancel;
     },
     [selectedProviders]
   );
 
-  // Trigger initial fetch and whenever provider selection changes
+  // Trigger fetch whenever provider selection changes
   useEffect(() => {
-    fetchNews();
+    const cancel = fetchNews();
+    return () => {
+      if (typeof cancel === 'function') cancel();
+    };
   }, [fetchNews]);
 
   // Auto-refresh every 5 minutes in background
@@ -322,6 +334,7 @@ export default function App() {
           {/* Quick Provider Selection Pills */}
           <ProviderPillsBar
             selectedProviders={selectedProviders}
+            loadingProviders={loadingProviders}
             onToggleProvider={handleToggleProvider}
             onOpenModal={() => setIsProviderModalOpen(true)}
           />
@@ -408,7 +421,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Loading State Skeleton */}
+        {/* Loading State Skeleton (Only shown when initial items are empty) */}
         {loading && items.length === 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 py-8">
             {[1, 2, 3, 4, 5, 6].map((idx) => (
@@ -483,8 +496,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Main News Tiles Presentation Grid / List */}
-        {!loading && filteredItems.length > 0 && (
+        {/* Main News Tiles Presentation Grid / List (Renders progressively as streams arrive) */}
+        {filteredItems.length > 0 && (
           <div
             id="news-tiles-grid"
             className={

@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { NewsItem } from '../types.ts';
+import { NewsItem, NewsProvider } from '../types.ts';
 import { GERMAN_NEWS_PROVIDERS } from '../data/providers.ts';
 import { inferNewsCategory } from '../utils/categories.ts';
 import { FALLBACK_NEWS_ITEMS } from '../data/fallbackNews.ts';
@@ -10,6 +10,73 @@ const parser = new XMLParser({
   textNodeName: '#text',
   cdataPropName: '__cdata',
 });
+
+// In-Memory cache for super-fast instant rendering
+const providerCache = new Map<string, { items: NewsItem[]; timestamp: number }>();
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes fresh cache
+
+// Initialize cache with fallback items so initial render is instantaneous
+FALLBACK_NEWS_ITEMS.forEach((item) => {
+  if (!providerCache.has(item.providerId)) {
+    const subset = FALLBACK_NEWS_ITEMS.filter((f) => f.providerId === item.providerId);
+    providerCache.set(item.providerId, { items: subset, timestamp: Date.now() - 60000 });
+  }
+});
+
+// Try to hydrate from localStorage for persistence across reloads
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const saved = localStorage.getItem('news24_cached_feeds');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      Object.entries(parsed).forEach(([pid, data]: [string, any]) => {
+        if (Array.isArray(data?.items) && data.items.length > 0) {
+          providerCache.set(pid, { items: data.items, timestamp: data.timestamp || Date.now() });
+        }
+      });
+    }
+  }
+} catch {
+  // ignore
+}
+
+function persistCacheToStorage() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const obj: Record<string, any> = {};
+      providerCache.forEach((val, key) => {
+        obj[key] = { items: val.items.slice(0, 30), timestamp: val.timestamp };
+      });
+      localStorage.setItem('news24_cached_feeds', JSON.stringify(obj));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+// Web Worker instance singleton (created lazily)
+let newsWorker: Worker | null = null;
+let workerAvailable = true;
+
+function getNewsWorker(): Worker | null {
+  if (!workerAvailable) return null;
+  if (!newsWorker && typeof window !== 'undefined' && window.Worker) {
+    try {
+      newsWorker = new Worker(new URL('../workers/newsFeedWorker.ts', import.meta.url), {
+        type: 'module',
+      });
+      newsWorker.onerror = () => {
+        console.info('Web Worker not supported in this context, falling back to main-thread async worker.');
+        workerAvailable = false;
+        newsWorker = null;
+      };
+    } catch {
+      workerAvailable = false;
+      newsWorker = null;
+    }
+  }
+  return newsWorker;
+}
 
 function decodeHtmlEntities(str: string): string {
   if (!str) return '';
@@ -55,36 +122,29 @@ function extractXmlText(node: any): string {
   return '';
 }
 
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 function generateItemId(providerId: string, rawItem: any, link: string, title: string, index: number): string {
   const guidRaw =
     extractXmlText(rawItem?.guid) ||
     extractXmlText(rawItem?.id) ||
     extractXmlText(rawItem?.sophoraId) ||
     extractXmlText(rawItem?.externalId);
-  const cleanGuid = guidRaw ? guidRaw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-60) : '';
-  const cleanLink = link ? link.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-40) : '';
-  const cleanTitle = title ? title.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30) : '';
-
-  if (cleanGuid && !cleanGuid.includes('object_Object')) {
-    return `${providerId}-${cleanGuid}`;
-  }
-  if (cleanLink) {
-    return `${providerId}-${cleanLink}`;
-  }
-  if (cleanTitle) {
-    return `${providerId}-${cleanTitle}-${index}`;
-  }
-  return `${providerId}-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 7)}`;
+  const basis = guidRaw && !guidRaw.includes('object') ? guidRaw : link || title || `idx-${index}`;
+  return `${providerId}-${hashString(basis)}`;
 }
 
-/**
- * Check if the app is running in an environment with our Express server
- * (e.g. dev container or Cloud Run), vs a static host like Netlify
- */
 function isBackendSupported(): boolean {
   if (typeof window === 'undefined') return false;
   const host = window.location.hostname;
-  // If hosted on netlify.app, github.io, vercel.app or custom static domain without express backend, return false
   if (host.includes('netlify.app') || host.includes('github.io') || host.includes('vercel.app')) {
     return false;
   }
@@ -92,14 +152,14 @@ function isBackendSupported(): boolean {
 }
 
 /**
- * Direct Tagesschau API (Supports Direct Browser CORS natively!)
+ * Direct Tagesschau API (Supports Direct Browser CORS natively in ~150ms)
  */
-async function fetchTagesschauDirect(): Promise<NewsItem[]> {
+export async function fetchTagesschauDirect(): Promise<NewsItem[]> {
   try {
     const res = await fetch('https://www.tagesschau.de/api2u/news', {
       headers: { Accept: 'application/json' },
     });
-    if (!res.ok) throw new Error(`Tagesschau HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const newsList = data.news || [];
     const newsItems: NewsItem[] = [];
@@ -152,11 +212,7 @@ async function fetchTagesschauDirect(): Promise<NewsItem[]> {
   }
 }
 
-/**
- * Fetch raw XML using JSON-wrapped CORS proxy (prevents browser direct CORS blocking)
- */
 async function fetchXmlViaJsonProxy(targetUrl: string): Promise<string | null> {
-  // Use AllOrigins JSON endpoint which always sends CORS headers to browser
   try {
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
     const controller = new AbortController();
@@ -170,16 +226,12 @@ async function fetchXmlViaJsonProxy(targetUrl: string): Promise<string | null> {
       }
     }
   } catch {
-    // Proxy timeout or rate-limited
+    // ignore
   }
-
   return null;
 }
 
-/**
- * Parse standard RSS feed XML into NewsItem[]
- */
-function parseRssFeed(xml: string, provider: (typeof GERMAN_NEWS_PROVIDERS)[0]): NewsItem[] {
+function parseRssFeed(xml: string, provider: NewsProvider): NewsItem[] {
   try {
     const parsed = parser.parse(xml);
     let items = parsed?.rss?.channel?.item || parsed?.feed?.entry || parsed?.['rdf:RDF']?.item || [];
@@ -273,82 +325,119 @@ function parseRssFeed(xml: string, provider: (typeof GERMAN_NEWS_PROVIDERS)[0]):
 }
 
 /**
- * Primary Client-Side SPA News Fetcher
- * Built specifically for Single Page Applications deployed on Netlify / static hosts.
+ * Fetch a single provider independently
  */
-export async function fetchNewsFeed(selectedProviderIds: string[]): Promise<NewsItem[]> {
-  const fallbackSubset = FALLBACK_NEWS_ITEMS.filter((item) =>
-    selectedProviderIds.includes(item.providerId)
-  );
+export async function fetchSingleProvider(providerId: string, forceRefresh = false): Promise<NewsItem[]> {
+  const provider = GERMAN_NEWS_PROVIDERS.find((p) => p.id === providerId);
+  if (!provider) return [];
 
-  // 1. If running in full-stack dev container with Express backend, query /api/news
-  if (isBackendSupported()) {
-    try {
-      const queryParams = new URLSearchParams({
-        providers: selectedProviderIds.join(','),
-      });
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-      const res = await fetch(`/api/news?${queryParams.toString()}`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.items) && data.items.length > 0) {
-          return data.items;
-        }
-      }
-    } catch {
-      // Backend not responding, smoothly proceed to SPA client fetching
+  // Check cache if not force refresh
+  if (!forceRefresh && providerCache.has(providerId)) {
+    const cached = providerCache.get(providerId)!;
+    if (Date.now() - cached.timestamp < CACHE_TTL_MS && cached.items.length > 0) {
+      return cached.items;
     }
   }
 
-  // 2. Client-Side SPA Fetching (Tagesschau direct API + CORS proxy + built-in fallback)
-  const providersToFetch = GERMAN_NEWS_PROVIDERS.filter((p) => selectedProviderIds.includes(p.id));
-  const fetchPromises = providersToFetch.map(async (provider) => {
+  // 1. Tagesschau special handling (Super fast direct CORS)
+  if (providerId === 'tagesschau') {
     try {
-      // Tagesschau supports browser CORS directly without any proxy
-      if (provider.id === 'tagesschau') {
-        const tsItems = await fetchTagesschauDirect();
-        if (tsItems.length > 0) return tsItems;
-      }
-
-      // Try JSON proxy wrapper for other feeds
-      const xml = await fetchXmlViaJsonProxy(provider.feedUrl);
-      if (xml) {
-        const parsedItems = parseRssFeed(xml, provider);
-        if (parsedItems.length > 0) return parsedItems;
+      const items = await fetchTagesschauDirect();
+      if (items.length > 0) {
+        providerCache.set(providerId, { items, timestamp: Date.now() });
+        persistCacheToStorage();
+        return items;
       }
     } catch {
-      // Silently catch to avoid console spam
+      // fallback
     }
-
-    // Provider curated items
-    return FALLBACK_NEWS_ITEMS.filter((item) => item.providerId === provider.id);
-  });
-
-  const results = await Promise.allSettled(fetchPromises);
-  const allItems: NewsItem[] = [];
-
-  results.forEach((res) => {
-    if (res.status === 'fulfilled' && Array.isArray(res.value)) {
-      allItems.push(...res.value);
-    }
-  });
-
-  if (allItems.length === 0) {
-    return fallbackSubset.length > 0 ? fallbackSubset : FALLBACK_NEWS_ITEMS;
   }
 
-  // Deduplicate and Sort
+  // 2. Try Web Worker for background processing
+  const worker = getNewsWorker();
+  if (worker) {
+    try {
+      const workerResult = await new Promise<NewsItem[]>((resolve) => {
+        const requestId = `${providerId}-${Date.now()}-${Math.random()}`;
+        const timeout = setTimeout(() => {
+          cleanup();
+          resolve([]);
+        }, 5000);
+
+        const handleMsg = (e: MessageEvent) => {
+          if (e.data?.requestId === requestId) {
+            cleanup();
+            resolve(e.data.items || []);
+          }
+        };
+
+        const cleanup = () => {
+          clearTimeout(timeout);
+          worker.removeEventListener('message', handleMsg);
+        };
+
+        worker.addEventListener('message', handleMsg);
+        worker.postMessage({
+          type: 'FETCH_PROVIDER',
+          provider,
+          requestId,
+        });
+      });
+
+      if (workerResult && workerResult.length > 0) {
+        providerCache.set(providerId, { items: workerResult, timestamp: Date.now() });
+        persistCacheToStorage();
+        return workerResult;
+      }
+    } catch {
+      // fallback to main thread
+    }
+  }
+
+  // 3. Main thread fallback
+  try {
+    const xml = await fetchXmlViaJsonProxy(provider.feedUrl);
+    if (xml) {
+      const items = parseRssFeed(xml, provider);
+      if (items.length > 0) {
+        providerCache.set(providerId, { items, timestamp: Date.now() });
+        persistCacheToStorage();
+        return items;
+      }
+    }
+  } catch {
+    // fallback
+  }
+
+  // 4. Return curated fallback items
+  const fallback = FALLBACK_NEWS_ITEMS.filter((item) => item.providerId === providerId);
+  providerCache.set(providerId, { items: fallback, timestamp: Date.now() });
+  return fallback;
+}
+
+/**
+ * Get Instant Initial State for Selected Providers (0ms latency!)
+ */
+export function getInstantCachedNews(selectedProviderIds: string[]): NewsItem[] {
+  const items: NewsItem[] = [];
+  selectedProviderIds.forEach((pid) => {
+    if (providerCache.has(pid)) {
+      items.push(...providerCache.get(pid)!.items);
+    } else {
+      const fallback = FALLBACK_NEWS_ITEMS.filter((f) => f.providerId === pid);
+      items.push(...fallback);
+    }
+  });
+
+  return deduplicateAndSortNews(items);
+}
+
+export function deduplicateAndSortNews(items: NewsItem[]): NewsItem[] {
   const seenLinks = new Set<string>();
   const seenTitles = new Set<string>();
   const seenIds = new Set<string>();
 
-  const deduplicated = allItems.filter((item, idx) => {
+  const deduplicated = items.filter((item, idx) => {
     const normalizedTitle = item.title.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (item.link && seenLinks.has(item.link)) return false;
     if (normalizedTitle && seenTitles.has(normalizedTitle)) return false;
@@ -356,19 +445,94 @@ export async function fetchNewsFeed(selectedProviderIds: string[]): Promise<News
     if (normalizedTitle) seenTitles.add(normalizedTitle);
 
     if (!item.id || typeof item.id !== 'string' || item.id.includes('[object')) {
-      item.id = `${item.providerId || 'news'}-${Date.now()}-${idx}`;
+      item.id = `${item.providerId || 'news'}-${hashString(item.link || item.title || `item-${idx}`)}`;
     }
     if (seenIds.has(item.id)) {
-      item.id = `${item.id}-${idx}`;
+      return false;
     }
     seenIds.add(item.id);
     return true;
   });
 
-  // Sort descending by timestamp
   deduplicated.sort((a, b) => b.timestamp - a.timestamp);
+  return deduplicated;
+}
 
-  return deduplicated.length > 0
-    ? deduplicated
-    : (fallbackSubset.length > 0 ? fallbackSubset : FALLBACK_NEWS_ITEMS);
+/**
+ * Streaming Feed Aggregator:
+ * Loads tiles INDEPENDENTLY and delivers clean, smooth updates
+ */
+export function streamNewsFeed(
+  selectedProviderIds: string[],
+  options: {
+    forceRefresh?: boolean;
+    onProviderLoaded: (providerId: string, items: NewsItem[], allCurrentItems: NewsItem[]) => void;
+    onAllFinished: (allItems: NewsItem[]) => void;
+  }
+): () => void {
+  let isCancelled = false;
+  const currentProviderItems = new Map<string, NewsItem[]>();
+
+  // 1. Initialize with cached items immediately for 0ms visual rendering
+  selectedProviderIds.forEach((pid) => {
+    if (providerCache.has(pid)) {
+      currentProviderItems.set(pid, providerCache.get(pid)!.items);
+    } else {
+      const fallback = FALLBACK_NEWS_ITEMS.filter((f) => f.providerId === pid);
+      currentProviderItems.set(pid, fallback);
+    }
+  });
+
+  const getCombinedItems = () => {
+    const all: NewsItem[] = [];
+    currentProviderItems.forEach((list) => all.push(...list));
+    return deduplicateAndSortNews(all);
+  };
+
+  // 2. Fetch every provider independently in parallel
+  let completedCount = 0;
+  const total = selectedProviderIds.length;
+
+  selectedProviderIds.forEach(async (providerId) => {
+    try {
+      const items = await fetchSingleProvider(providerId, options.forceRefresh);
+      if (isCancelled) return;
+
+      if (items && items.length > 0) {
+        currentProviderItems.set(providerId, items);
+      }
+
+      completedCount++;
+      const currentCombined = getCombinedItems();
+      options.onProviderLoaded(providerId, items, currentCombined);
+
+      if (completedCount >= total) {
+        options.onAllFinished(currentCombined);
+      }
+    } catch {
+      if (isCancelled) return;
+      completedCount++;
+      const currentCombined = getCombinedItems();
+      if (completedCount >= total) {
+        options.onAllFinished(currentCombined);
+      }
+    }
+  });
+
+  // Return cancel function
+  return () => {
+    isCancelled = true;
+  };
+}
+
+/**
+ * Standard Promise wrapper for single-call needs
+ */
+export async function fetchNewsFeed(selectedProviderIds: string[]): Promise<NewsItem[]> {
+  return new Promise((resolve) => {
+    streamNewsFeed(selectedProviderIds, {
+      onAllFinished: (items) => resolve(items),
+      onProviderLoaded: () => {},
+    });
+  });
 }

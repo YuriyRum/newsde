@@ -21,7 +21,7 @@ interface NewsTileProps {
   onSelectCategory?: (category: string) => void;
 }
 
-export const NewsTile: React.FC<NewsTileProps> = ({
+const NewsTileComponent: React.FC<NewsTileProps> = ({
   item,
   layout,
   fontSize,
@@ -86,6 +86,7 @@ export const NewsTile: React.FC<NewsTileProps> = ({
               alt={item.title}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               loading="lazy"
+              decoding="async"
               onError={() => setImageError(true)}
             />
             {item.isBreaking && (
@@ -283,6 +284,7 @@ export const NewsTile: React.FC<NewsTileProps> = ({
             alt={item.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
+            decoding="async"
             onError={() => setImageError(true)}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/10 pointer-events-none" />
@@ -439,3 +441,5 @@ export const NewsTile: React.FC<NewsTileProps> = ({
     </article>
   );
 };
+
+export const NewsTile = React.memo(NewsTileComponent);
