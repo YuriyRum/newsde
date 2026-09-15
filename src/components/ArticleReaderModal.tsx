@@ -53,40 +53,42 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
     setLoading(true);
     setError(null);
 
-    // Fetch cleaned article text (first tries local server endpoint, then client CORS fallback, then RSS summary)
-    fetch(`/api/article-reader?url=${encodeURIComponent(item.link)}`, { signal: AbortSignal.timeout(3000) })
-      .then((res) => {
-        if (!res.ok) throw new Error('Local reader API unavailable');
-        return res.json();
-      })
-      .then((data) => {
-        if (!isMounted) return;
-        if (data.success && data.paragraphs && data.paragraphs.length > 0) {
-          setContent({
-            title: data.title || item.title,
-            paragraphs: data.paragraphs,
-            leadImage: data.leadImage || item.imageUrl,
-          });
-        } else {
-          throw new Error('Minimal extraction');
-        }
-      })
-      .catch(async () => {
-        if (!isMounted) return;
-        // Attempt client-side SPA extraction via proxy
-        try {
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(item.link)}`;
-          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(4000) });
-          if (res.ok) {
-            const html = await res.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-            doc.querySelectorAll('script, style, nav, header, footer, noscript, iframe, .ad, .cookie-banner').forEach(el => el.remove());
+    const isBackend =
+      typeof window !== 'undefined' &&
+      !window.location.hostname.includes('netlify.app') &&
+      !window.location.hostname.includes('github.io') &&
+      !window.location.hostname.includes('vercel.app') &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.includes('.run.app'));
+
+    const handleFallback = async () => {
+      if (!isMounted) return;
+      // Attempt client-side JSON proxy extraction
+      try {
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(item.link)}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.contents) {
+            const doc = new DOMParser().parseFromString(data.contents, 'text/html');
+            doc
+              .querySelectorAll('script, style, nav, header, footer, noscript, iframe, .ad, .cookie-banner')
+              .forEach((el) => el.remove());
             const articleEl = doc.querySelector('article') || doc.querySelector('main') || doc.body;
             const pEls = articleEl.querySelectorAll('p');
             const paragraphs: string[] = [];
             pEls.forEach((p) => {
               const text = (p.textContent || '').trim();
-              if (text.length > 40 && !text.includes('Datenschutz') && !text.includes('Abonnieren') && !text.includes('Newsletter')) {
+              if (
+                text.length > 40 &&
+                !text.includes('Datenschutz') &&
+                !text.includes('Abonnieren') &&
+                !text.includes('Newsletter')
+              ) {
                 paragraphs.push(text);
               }
             });
@@ -101,21 +103,49 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               }
             }
           }
-        } catch {
-          // Fallback to item summary
         }
+      } catch {
+        // Fallback to item summary
+      }
 
-        if (isMounted) {
-          setContent({
-            title: item.title,
-            paragraphs: item.summary ? [item.summary] : [],
-            leadImage: item.imageUrl,
-          });
-        }
-      })
-      .finally(() => {
+      if (isMounted) {
+        setContent({
+          title: item.title,
+          paragraphs: item.summary ? [item.summary] : [],
+          leadImage: item.imageUrl,
+        });
+      }
+    };
+
+    if (isBackend) {
+      fetch(`/api/article-reader?url=${encodeURIComponent(item.link)}`, { signal: AbortSignal.timeout(3000) })
+        .then((res) => {
+          if (!res.ok) throw new Error('Local reader API unavailable');
+          return res.json();
+        })
+        .then((data) => {
+          if (!isMounted) return;
+          if (data.success && data.paragraphs && data.paragraphs.length > 0) {
+            setContent({
+              title: data.title || item.title,
+              paragraphs: data.paragraphs,
+              leadImage: data.leadImage || item.imageUrl,
+            });
+          } else {
+            handleFallback();
+          }
+        })
+        .catch(() => {
+          handleFallback();
+        })
+        .finally(() => {
+          if (isMounted) setLoading(false);
+        });
+    } else {
+      handleFallback().finally(() => {
         if (isMounted) setLoading(false);
       });
+    }
 
     return () => {
       isMounted = false;

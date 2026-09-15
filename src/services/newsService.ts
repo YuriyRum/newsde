@@ -78,7 +78,21 @@ function generateItemId(providerId: string, rawItem: any, link: string, title: s
 }
 
 /**
- * Direct Tagesschau API (Supports Direct Browser CORS)
+ * Check if the app is running in an environment with our Express server
+ * (e.g. dev container or Cloud Run), vs a static host like Netlify
+ */
+function isBackendSupported(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  // If hosted on netlify.app, github.io, vercel.app or custom static domain without express backend, return false
+  if (host.includes('netlify.app') || host.includes('github.io') || host.includes('vercel.app')) {
+    return false;
+  }
+  return host === 'localhost' || host === '127.0.0.1' || host.includes('.run.app');
+}
+
+/**
+ * Direct Tagesschau API (Supports Direct Browser CORS natively!)
  */
 async function fetchTagesschauDirect(): Promise<NewsItem[]> {
   try {
@@ -109,7 +123,7 @@ async function fetchTagesschauDirect(): Promise<NewsItem[]> {
 
       const dateStr = item.date || item.externalId || new Date().toISOString();
       const parsedDate = new Date(dateStr);
-      const timestamp = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
+      const timestamp = isNaN(parsedDate.getTime()) ? Date.now() - i * 60000 : parsedDate.getTime();
       const title = decodeHtmlEntities(item.title);
       const summary = decodeHtmlEntities(item.firstSentence || item.topline || '');
       const rawCat = item.topline || (item.tags && item.tags[0]?.tag) || '';
@@ -133,69 +147,30 @@ async function fetchTagesschauDirect(): Promise<NewsItem[]> {
       });
     }
     return newsItems;
-  } catch (err) {
-    console.warn('Direct Tagesschau fetch failed:', err);
+  } catch {
     return [];
   }
 }
 
 /**
- * Fetch raw XML using multiple CORS proxies with fallbacks
+ * Fetch raw XML using JSON-wrapped CORS proxy (prevents browser direct CORS blocking)
  */
-async function fetchXmlWithCorsProxy(targetUrl: string): Promise<string | null> {
-  // Strategy 1: Direct fetch
+async function fetchXmlViaJsonProxy(targetUrl: string): Promise<string | null> {
+  // Use AllOrigins JSON endpoint which always sends CORS headers to browser
   try {
-    const directRes = await fetch(targetUrl, { signal: AbortSignal.timeout(4000) });
-    if (directRes.ok) {
-      const xml = await directRes.text();
-      if (xml && (xml.includes('<rss') || xml.includes('<feed') || xml.includes('<?xml'))) {
-        return xml;
-      }
-    }
-  } catch {
-    // Expected CORS error in browser, continue to proxy
-  }
-
-  // Strategy 2: AllOrigins proxy
-  try {
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(proxyUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (res.ok) {
-      const xml = await res.text();
-      if (xml && (xml.includes('<rss') || xml.includes('<feed') || xml.includes('<channel'))) {
-        return xml;
+      const data = await res.json();
+      if (data.contents && (data.contents.includes('<rss') || data.contents.includes('<feed') || data.contents.includes('<channel'))) {
+        return data.contents;
       }
     }
   } catch {
-    // continue
-  }
-
-  // Strategy 3: Corsproxy.io
-  try {
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
-    if (res.ok) {
-      const xml = await res.text();
-      if (xml && (xml.includes('<rss') || xml.includes('<feed') || xml.includes('<channel'))) {
-        return xml;
-      }
-    }
-  } catch {
-    // continue
-  }
-
-  // Strategy 4: Codetabs proxy
-  try {
-    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
-    if (res.ok) {
-      const xml = await res.text();
-      if (xml && (xml.includes('<rss') || xml.includes('<feed') || xml.includes('<channel'))) {
-        return xml;
-      }
-    }
-  } catch {
-    // continue
+    // Proxy timeout or rate-limited
   }
 
   return null;
@@ -292,111 +267,108 @@ function parseRssFeed(xml: string, provider: (typeof GERMAN_NEWS_PROVIDERS)[0]):
       });
     }
     return newsItems;
-  } catch (err) {
-    console.warn(`Error parsing RSS for ${provider.id}:`, err);
+  } catch {
     return [];
   }
 }
 
 /**
  * Primary Client-Side SPA News Fetcher
- * Works seamlessly both with backend server (/api/news) and in static SPA deployments (Netlify, Vercel).
+ * Built specifically for Single Page Applications deployed on Netlify / static hosts.
  */
 export async function fetchNewsFeed(selectedProviderIds: string[]): Promise<NewsItem[]> {
   const fallbackSubset = FALLBACK_NEWS_ITEMS.filter((item) =>
     selectedProviderIds.includes(item.providerId)
   );
 
-  // 1. If backend API is available (Express server / dev container), try it first
-  try {
-    const queryParams = new URLSearchParams({
-      providers: selectedProviderIds.join(','),
-    });
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+  // 1. If running in full-stack dev container with Express backend, query /api/news
+  if (isBackendSupported()) {
+    try {
+      const queryParams = new URLSearchParams({
+        providers: selectedProviderIds.join(','),
+      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    const res = await fetch(`/api/news?${queryParams.toString()}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+      const res = await fetch(`/api/news?${queryParams.toString()}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.items) && data.items.length > 0) {
-        return data.items;
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.items) && data.items.length > 0) {
+          return data.items;
+        }
       }
+    } catch {
+      // Backend not responding, smoothly proceed to SPA client fetching
     }
-  } catch (apiErr) {
-    // Not on backend or request timed out - continue to direct client-side fetching
-    console.info('Backend /api/news not reachable or timed out, switching to client-side feed aggregation.');
   }
 
-  // 2. Fetch Feeds Client-Side
-  try {
-    const providersToFetch = GERMAN_NEWS_PROVIDERS.filter((p) => selectedProviderIds.includes(p.id));
-    const fetchPromises = providersToFetch.map(async (provider) => {
-      try {
-        if (provider.id === 'tagesschau') {
-          const tsItems = await fetchTagesschauDirect();
-          if (tsItems.length > 0) return tsItems;
-        }
-
-        const xml = await fetchXmlWithCorsProxy(provider.feedUrl);
-        if (xml) {
-          const parsedItems = parseRssFeed(xml, provider);
-          if (parsedItems.length > 0) return parsedItems;
-        }
-      } catch (err) {
-        console.warn(`Live feed fetch failed for ${provider.id}:`, err);
+  // 2. Client-Side SPA Fetching (Tagesschau direct API + CORS proxy + built-in fallback)
+  const providersToFetch = GERMAN_NEWS_PROVIDERS.filter((p) => selectedProviderIds.includes(p.id));
+  const fetchPromises = providersToFetch.map(async (provider) => {
+    try {
+      // Tagesschau supports browser CORS directly without any proxy
+      if (provider.id === 'tagesschau') {
+        const tsItems = await fetchTagesschauDirect();
+        if (tsItems.length > 0) return tsItems;
       }
 
-      // Provider-specific fallback
-      return FALLBACK_NEWS_ITEMS.filter((item) => item.providerId === provider.id);
-    });
-
-    const results = await Promise.allSettled(fetchPromises);
-    const allItems: NewsItem[] = [];
-
-    results.forEach((res) => {
-      if (res.status === 'fulfilled' && Array.isArray(res.value)) {
-        allItems.push(...res.value);
+      // Try JSON proxy wrapper for other feeds
+      const xml = await fetchXmlViaJsonProxy(provider.feedUrl);
+      if (xml) {
+        const parsedItems = parseRssFeed(xml, provider);
+        if (parsedItems.length > 0) return parsedItems;
       }
-    });
-
-    if (allItems.length === 0) {
-      return fallbackSubset.length > 0 ? fallbackSubset : FALLBACK_NEWS_ITEMS;
+    } catch {
+      // Silently catch to avoid console spam
     }
 
-    // Deduplicate and Sort
-    const seenLinks = new Set<string>();
-    const seenTitles = new Set<string>();
-    const seenIds = new Set<string>();
+    // Provider curated items
+    return FALLBACK_NEWS_ITEMS.filter((item) => item.providerId === provider.id);
+  });
 
-    const deduplicated = allItems.filter((item, idx) => {
-      const normalizedTitle = item.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (item.link && seenLinks.has(item.link)) return false;
-      if (normalizedTitle && seenTitles.has(normalizedTitle)) return false;
-      if (item.link) seenLinks.add(item.link);
-      if (normalizedTitle) seenTitles.add(normalizedTitle);
+  const results = await Promise.allSettled(fetchPromises);
+  const allItems: NewsItem[] = [];
 
-      if (!item.id || typeof item.id !== 'string' || item.id.includes('[object')) {
-        item.id = `${item.providerId || 'news'}-${Date.now()}-${idx}`;
-      }
-      if (seenIds.has(item.id)) {
-        item.id = `${item.id}-${idx}`;
-      }
-      seenIds.add(item.id);
-      return true;
-    });
+  results.forEach((res) => {
+    if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+      allItems.push(...res.value);
+    }
+  });
 
-    // Sort descending by timestamp
-    deduplicated.sort((a, b) => b.timestamp - a.timestamp);
-
-    return deduplicated.length > 0
-      ? deduplicated
-      : (fallbackSubset.length > 0 ? fallbackSubset : FALLBACK_NEWS_ITEMS);
-  } catch (err) {
-    console.warn('Client-side feed aggregation encountered error, serving fallback articles:', err);
+  if (allItems.length === 0) {
     return fallbackSubset.length > 0 ? fallbackSubset : FALLBACK_NEWS_ITEMS;
   }
+
+  // Deduplicate and Sort
+  const seenLinks = new Set<string>();
+  const seenTitles = new Set<string>();
+  const seenIds = new Set<string>();
+
+  const deduplicated = allItems.filter((item, idx) => {
+    const normalizedTitle = item.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (item.link && seenLinks.has(item.link)) return false;
+    if (normalizedTitle && seenTitles.has(normalizedTitle)) return false;
+    if (item.link) seenLinks.add(item.link);
+    if (normalizedTitle) seenTitles.add(normalizedTitle);
+
+    if (!item.id || typeof item.id !== 'string' || item.id.includes('[object')) {
+      item.id = `${item.providerId || 'news'}-${Date.now()}-${idx}`;
+    }
+    if (seenIds.has(item.id)) {
+      item.id = `${item.id}-${idx}`;
+    }
+    seenIds.add(item.id);
+    return true;
+  });
+
+  // Sort descending by timestamp
+  deduplicated.sort((a, b) => b.timestamp - a.timestamp);
+
+  return deduplicated.length > 0
+    ? deduplicated
+    : (fallbackSubset.length > 0 ? fallbackSubset : FALLBACK_NEWS_ITEMS);
 }
