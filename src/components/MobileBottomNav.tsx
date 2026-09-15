@@ -1,6 +1,7 @@
 import React from 'react';
 import { Newspaper, SlidersHorizontal, Bookmark, LayoutGrid } from 'lucide-react';
-import { ViewLayout } from '../types.ts';
+import { ViewLayout, AppLanguage } from '../types.ts';
+import { t } from '../i18n/translations.ts';
 
 interface MobileBottomNavProps {
   onOpenProvidersModal: () => void;
@@ -10,6 +11,7 @@ interface MobileBottomNavProps {
   viewLayout: ViewLayout;
   onCycleViewLayout: () => void;
   onScrollToTop: () => void;
+  language: AppLanguage;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -20,6 +22,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   viewLayout,
   onCycleViewLayout,
   onScrollToTop,
+  language,
 }) => {
   return (
     <nav
@@ -34,7 +37,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         className="flex flex-col items-center gap-1 text-stone-900 dark:text-stone-100 p-1"
       >
         <Newspaper className="w-5 h-5 text-amber-500" />
-        <span className="text-[10px] font-bold">News</span>
+        <span className="text-[10px] font-bold">{t('news', language)}</span>
       </button>
 
       {/* Multiple Choice Sources */}
@@ -50,7 +53,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             {selectedProvidersCount}
           </span>
         </div>
-        <span className="text-[10px] font-medium">Quellen</span>
+        <span className="text-[10px] font-medium">{t('sources', language)}</span>
       </button>
 
       {/* Layout toggle on mobile */}
@@ -79,7 +82,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             </span>
           )}
         </div>
-        <span className="text-[10px] font-medium">Gemerkt</span>
+        <span className="text-[10px] font-medium">{t('saved', language)}</span>
       </button>
     </nav>
   );

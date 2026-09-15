@@ -798,6 +798,51 @@ app.get('/api/article-reader', async (req, res) => {
   }
 });
 
+// Translation API endpoint (German -> Russian)
+const serverTranslationCache = new Map<string, string>();
+
+app.post('/api/translate', async (req, res) => {
+  const { text, from = 'de', to = 'ru' } = req.body;
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'Missing text to translate' });
+  }
+
+  const trimmed = text.trim();
+  const cacheKey = `${from}-${to}-${trimmed}`;
+  if (serverTranslationCache.has(cacheKey)) {
+    return res.json({ success: true, translation: serverTranslationCache.get(cacheKey) });
+  }
+
+  try {
+    const gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
+      from
+    )}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(trimmed)}`;
+
+    const response = await fetch(gtxUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        const fullTranslation = data[0].map((chunk: any) => chunk[0] || '').join('');
+        if (fullTranslation && fullTranslation.trim()) {
+          const result = fullTranslation.trim();
+          serverTranslationCache.set(cacheKey, result);
+          return res.json({ success: true, translation: result });
+        }
+      }
+    }
+    throw new Error('GTX translation returned empty');
+  } catch (err) {
+    // Fallback: return trimmed original text
+    res.json({ success: false, translation: trimmed });
+  }
+});
+
 async function startServer() {
   // Vite middleware in dev mode
   if (process.env.NODE_ENV !== 'production') {

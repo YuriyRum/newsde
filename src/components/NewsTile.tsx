@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { NewsItem, ViewLayout, FontSize } from '../types.ts';
-import { formatGermanTimeAgo } from '../utils/date.ts';
+import React, { useState, useEffect } from 'react';
+import { NewsItem, ViewLayout, FontSize, AppLanguage } from '../types.ts';
+import { formatTimeAgo } from '../utils/date.ts';
+import { t, getLocalizedCategoryName } from '../i18n/translations.ts';
+import { translateTextToRussian, getCachedTranslation } from '../services/translationService.ts';
 import {
   Bookmark,
   BookmarkCheck,
@@ -9,6 +11,8 @@ import {
   BookOpen,
   Zap,
   Check,
+  Languages,
+  Loader2,
 } from 'lucide-react';
 
 interface NewsTileProps {
@@ -19,6 +23,7 @@ interface NewsTileProps {
   onToggleBookmark: (item: NewsItem) => void;
   onOpenReader: (item: NewsItem) => void;
   onSelectCategory?: (category: string) => void;
+  language: AppLanguage;
 }
 
 const NewsTileComponent: React.FC<NewsTileProps> = ({
@@ -29,17 +34,65 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
   onToggleBookmark,
   onOpenReader,
   onSelectCategory,
+  language,
 }) => {
   const [imageError, setImageError] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Individual card translation state
+  const [isTranslated, setIsTranslated] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translatedTitle, setTranslatedTitle] = useState<string>('');
+  const [translatedSummary, setTranslatedSummary] = useState<string>('');
+
+  // Check if cache already has translations
+  useEffect(() => {
+    const cachedT = getCachedTranslation(item.title);
+    const cachedS = item.summary ? getCachedTranslation(item.summary) : '';
+    if (cachedT) {
+      setTranslatedTitle(cachedT);
+      if (cachedS) setTranslatedSummary(cachedS);
+    }
+  }, [item.title, item.summary]);
+
+  const handleToggleTranslate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isTranslated) {
+      setIsTranslated(false);
+      return;
+    }
+
+    if (translatedTitle && (!item.summary || translatedSummary)) {
+      setIsTranslated(true);
+      return;
+    }
+
+    setIsTranslating(true);
+    try {
+      const [tTitle, tSum] = await Promise.all([
+        translateTextToRussian(item.title),
+        item.summary ? translateTextToRussian(item.summary) : Promise.resolve(''),
+      ]);
+      setTranslatedTitle(tTitle);
+      setTranslatedSummary(tSum);
+      setIsTranslated(true);
+    } catch {
+      // ignore
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const currentTitle = isTranslated && translatedTitle ? translatedTitle : item.title;
+  const currentSummary = isTranslated && translatedSummary ? translatedSummary : item.summary;
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (navigator.share) {
       try {
         await navigator.share({
-          title: item.title,
-          text: item.summary,
+          title: currentTitle,
+          text: currentSummary,
           url: item.link,
         });
         return;
@@ -70,7 +123,9 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
     xl: 'text-lg leading-relaxed',
   }[fontSize];
 
-  // Compact Layout (Horizontal list card, great for mobile scanning)
+  const localizedCategory = item.category ? getLocalizedCategoryName(item.category, language) : '';
+
+  // Compact Layout (Horizontal list card)
   if (layout === 'compact') {
     return (
       <article
@@ -83,7 +138,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
           <div className="w-full sm:w-36 h-36 sm:h-28 shrink-0 rounded-xl overflow-hidden bg-stone-100 dark:bg-stone-800 relative">
             <img
               src={item.imageUrl}
-              alt={item.title}
+              alt={currentTitle}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               loading="lazy"
               decoding="async"
@@ -91,7 +146,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
             />
             {item.isBreaking && (
               <div className="absolute top-2 left-2 bg-red-600 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                <Zap className="w-2.5 h-2.5 fill-current" /> Eilmeldung
+                <Zap className="w-2.5 h-2.5 fill-current" /> {t('breakingNews', language)}
               </div>
             )}
           </div>
@@ -106,7 +161,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
               >
                 {item.providerName}
               </span>
-              {item.category && (
+              {localizedCategory && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -114,27 +169,32 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
                     if (onSelectCategory) onSelectCategory(item.category!);
                   }}
                   className="text-[11px] font-semibold text-stone-600 dark:text-stone-300 hover:text-amber-700 dark:hover:text-amber-400 hover:underline bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded cursor-pointer transition-colors"
-                  title={`Nach ${item.category} filtern`}
+                  title={`${t('categories', language)}: ${localizedCategory}`}
                 >
-                  {item.category}
+                  {localizedCategory}
                 </button>
               )}
+              {isTranslated && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300/60">
+                  {t('translatedTag', language)}
+                </span>
+              )}
               <span className="text-[11px] text-stone-400 dark:text-stone-500 ml-auto">
-                {formatGermanTimeAgo(item.pubDate || item.timestamp)}
+                {formatTimeAgo(item.pubDate || item.timestamp, language)}
               </span>
             </div>
 
             <h3
               className={`font-serif font-bold text-stone-900 dark:text-stone-100 group-hover:text-amber-800 dark:group-hover:text-amber-300 transition-colors ${titleFontSizeClass}`}
             >
-              {item.title}
+              {currentTitle}
             </h3>
 
-            {item.summary && (
+            {currentSummary && (
               <p
                 className={`text-stone-600 dark:text-stone-400 mt-1 line-clamp-2 font-sans ${summaryFontSizeClass}`}
               >
-                {item.summary}
+                {currentSummary}
               </p>
             )}
           </div>
@@ -150,15 +210,35 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
               className="font-bold text-amber-700 dark:text-amber-400 hover:text-amber-900 flex items-center gap-1.5 py-1 px-2 -ml-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>Lesen (Werbefrei)</span>
+              <span>{t('readMore', language)}</span>
             </button>
 
             <div className="flex items-center gap-1">
+              {/* Translate button */}
+              <button
+                type="button"
+                onClick={handleToggleTranslate}
+                disabled={isTranslating}
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 ${
+                  isTranslated
+                    ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
+                    : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
+                }`}
+                title={isTranslated ? t('showOriginal', language) : t('translateToRussian', language)}
+              >
+                {isTranslating ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                ) : (
+                  <Languages className="w-3.5 h-3.5" />
+                )}
+                <span className="text-[11px]">{isTranslated ? 'DE' : 'RU'}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleShare}
                 className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-                title="Link kopieren / teilen"
+                title={t('copyLink', language)}
               >
                 {copied ? (
                   <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -178,7 +258,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
                     ? 'text-amber-600 dark:text-amber-400'
                     : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                 }`}
-                title={isBookmarked ? 'Gespeichert' : 'Artikel merken'}
+                title={isBookmarked ? t('saved', language) : t('saveArticle', language)}
               >
                 {isBookmarked ? (
                   <BookmarkCheck className="w-4 h-4 fill-current" />
@@ -193,7 +273,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
                 className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-                title="Originalquelle öffnen"
+                title={t('visitOriginal', language)}
               >
                 <ExternalLink className="w-4 h-4" />
               </a>
@@ -204,7 +284,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
     );
   }
 
-  // Headline Dense Layout (Ultra high density for speed scanning)
+  // Headline Dense Layout
   if (layout === 'headline') {
     return (
       <article
@@ -221,22 +301,45 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
             </span>
             {item.isBreaking && (
               <span className="text-[10px] font-black uppercase text-red-600 dark:text-red-400 flex items-center gap-0.5">
-                <Zap className="w-2.5 h-2.5 fill-current" /> Eilmeldung
+                <Zap className="w-2.5 h-2.5 fill-current" /> {t('breakingNews', language)}
+              </span>
+            )}
+            {isTranslated && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
+                RU
               </span>
             )}
             <span className="text-[11px] text-stone-400 dark:text-stone-500">
-              {formatGermanTimeAgo(item.pubDate || item.timestamp)}
+              {formatTimeAgo(item.pubDate || item.timestamp, language)}
             </span>
           </div>
 
           <h3
             className={`font-serif font-bold text-stone-900 dark:text-stone-100 group-hover:text-amber-800 dark:group-hover:text-amber-300 transition-colors line-clamp-2 ${titleFontSizeClass}`}
           >
-            {item.title}
+            {currentTitle}
           </h3>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleTranslate}
+            disabled={isTranslating}
+            className={`p-1.5 rounded-lg text-xs font-bold transition-colors ${
+              isTranslated
+                ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200'
+                : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
+            }`}
+            title={isTranslated ? t('showOriginal', language) : t('translateToRussian', language)}
+          >
+            {isTranslating ? (
+              <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+            ) : (
+              <Languages className="w-4 h-4" />
+            )}
+          </button>
+
           <button
             type="button"
             onClick={(e) => {
@@ -281,7 +384,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
         <div className="relative w-full aspect-16/9 overflow-hidden bg-stone-100 dark:bg-stone-800">
           <img
             src={item.imageUrl}
-            alt={item.title}
+            alt={currentTitle}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
             decoding="async"
@@ -298,13 +401,13 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
             </span>
             {item.isBreaking && (
               <span className="bg-red-600 text-white text-[11px] font-black uppercase px-2 py-0.5 rounded-md flex items-center gap-1 shadow-md animate-pulse">
-                <Zap className="w-3 h-3 fill-current" /> Eilmeldung
+                <Zap className="w-3 h-3 fill-current" /> {t('breakingNews', language)}
               </span>
             )}
           </div>
 
           {/* Category Tag on Image */}
-          {item.category && (
+          {localizedCategory && (
             <div className="absolute bottom-2.5 left-3">
               <button
                 type="button"
@@ -313,20 +416,20 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
                   if (onSelectCategory) onSelectCategory(item.category!);
                 }}
                 className="text-[11px] font-semibold text-white/95 bg-black/50 hover:bg-amber-600 px-2.5 py-0.5 rounded backdrop-blur-xs transition-colors cursor-pointer"
-                title={`Nach ${item.category} filtern`}
+                title={`${t('categories', language)}: ${localizedCategory}`}
               >
-                {item.category}
+                {localizedCategory}
               </button>
             </div>
           )}
 
           {/* Time Badge on Image */}
           <div className="absolute bottom-2.5 right-3 text-[11px] text-white/90 font-medium bg-black/40 px-2 py-0.5 rounded backdrop-blur-xs">
-            {formatGermanTimeAgo(item.pubDate || item.timestamp)}
+            {formatTimeAgo(item.pubDate || item.timestamp, language)}
           </div>
         </div>
       ) : (
-        /* Image fallback banner with refined color accent */
+        /* Image fallback banner */
         <div className="p-4 pb-0 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span
@@ -334,7 +437,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
             >
               {item.providerName}
             </span>
-            {item.category && (
+            {localizedCategory && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -342,19 +445,19 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
                   if (onSelectCategory) onSelectCategory(item.category!);
                 }}
                 className="text-xs font-semibold text-stone-600 dark:text-stone-300 hover:text-amber-700 dark:hover:text-amber-400 hover:underline bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded cursor-pointer transition-colors"
-                title={`Nach ${item.category} filtern`}
+                title={`${t('categories', language)}: ${localizedCategory}`}
               >
-                {item.category}
+                {localizedCategory}
               </button>
             )}
             {item.isBreaking && (
               <span className="bg-red-600 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md flex items-center gap-1 shadow-xs">
-                <Zap className="w-2.5 h-2.5 fill-current" /> Eilmeldung
+                <Zap className="w-2.5 h-2.5 fill-current" /> {t('breakingNews', language)}
               </span>
             )}
           </div>
           <span className="text-xs text-stone-400 dark:text-stone-500">
-            {formatGermanTimeAgo(item.pubDate || item.timestamp)}
+            {formatTimeAgo(item.pubDate || item.timestamp, language)}
           </span>
         </div>
       )}
@@ -362,17 +465,19 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
       {/* Body Content */}
       <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
         <div>
-          <h3
-            className={`font-serif font-bold text-stone-900 dark:text-stone-100 group-hover:text-amber-800 dark:group-hover:text-amber-300 transition-colors ${titleFontSizeClass}`}
-          >
-            {item.title}
-          </h3>
+          <div className="flex items-start justify-between gap-2">
+            <h3
+              className={`font-serif font-bold text-stone-900 dark:text-stone-100 group-hover:text-amber-800 dark:group-hover:text-amber-300 transition-colors ${titleFontSizeClass}`}
+            >
+              {currentTitle}
+            </h3>
+          </div>
 
-          {item.summary && (
+          {currentSummary && (
             <p
               className={`text-stone-600 dark:text-stone-300 mt-2.5 line-clamp-3 font-sans ${summaryFontSizeClass}`}
             >
-              {item.summary}
+              {currentSummary}
             </p>
           )}
         </div>
@@ -388,15 +493,35 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
             className="text-xs font-bold text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300 flex items-center gap-1.5 py-1 px-2.5 -ml-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors"
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>Werbefrei lesen</span>
+            <span>{t('readMore', language)}</span>
           </button>
 
           <div className="flex items-center gap-1">
+            {/* Translate to Russian toggle button on tile */}
+            <button
+              type="button"
+              onClick={handleToggleTranslate}
+              disabled={isTranslating}
+              className={`px-2 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 ${
+                isTranslated
+                  ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
+                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
+              }`}
+              title={isTranslated ? t('showOriginal', language) : t('translateToRussian', language)}
+            >
+              {isTranslating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+              ) : (
+                <Languages className="w-3.5 h-3.5" />
+              )}
+              <span className="text-[11px]">{isTranslated ? 'DE' : 'RU'}</span>
+            </button>
+
             <button
               type="button"
               onClick={handleShare}
               className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title="Link teilen"
+              title={t('copyLink', language)}
             >
               {copied ? (
                 <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -416,7 +541,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
                   ? 'text-amber-600 dark:text-amber-400'
                   : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
               }`}
-              title={isBookmarked ? 'Gespeichert' : 'Artikel merken'}
+              title={isBookmarked ? t('saved', language) : t('saveArticle', language)}
             >
               {isBookmarked ? (
                 <BookmarkCheck className="w-4 h-4 fill-current" />
@@ -431,7 +556,7 @@ const NewsTileComponent: React.FC<NewsTileProps> = ({
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
               className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title="Quelle öffnen"
+              title={t('visitOriginal', language)}
             >
               <ExternalLink className="w-4 h-4" />
             </a>

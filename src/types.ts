@@ -1,3 +1,5 @@
+export type AppLanguage = 'de' | 'ru';
+
 export interface NewsProvider {
   id: string;
   name: string;
@@ -29,6 +31,8 @@ export interface NewsItem {
   category?: string;
   imageUrl?: string;
   isBreaking?: boolean;
+  translatedTitle?: string;
+  translatedSummary?: string;
 }
 
 export type ViewLayout = 'tiles' | 'compact' | 'headline';
@@ -43,4 +47,5 @@ export interface FilterState {
   sortBy: 'latest' | 'oldest';
   fontSize: FontSize;
   theme: ThemeMode;
+  language: AppLanguage;
 }

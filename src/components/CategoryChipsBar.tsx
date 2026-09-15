@@ -1,5 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Tag, Layers, X, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Tag, Layers, X } from 'lucide-react';
+import { AppLanguage } from '../types.ts';
+import { t, getLocalizedCategoryName } from '../i18n/translations.ts';
 
 interface CategoryChipsBarProps {
   categories: string[];
@@ -8,6 +10,7 @@ interface CategoryChipsBarProps {
   breakingCount: number;
   totalCount: number;
   categoryCounts?: Record<string, number>;
+  language: AppLanguage;
 }
 
 export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
@@ -17,6 +20,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
   breakingCount,
   totalCount,
   categoryCounts = {},
+  language,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -52,10 +56,10 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
 
   const activeCategoryLabel =
     selectedCategory === 'all'
-      ? 'Alle Themen'
+      ? t('allTopics', language)
       : selectedCategory === 'breaking'
-        ? 'Eilmeldungen'
-        : selectedCategory;
+        ? t('breakingNews', language)
+        : getLocalizedCategoryName(selectedCategory, language);
 
   const activeCategoryCount =
     selectedCategory === 'all'
@@ -80,7 +84,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
             <div className="w-5 h-5 rounded-md bg-amber-400/20 text-amber-700 dark:text-amber-400 flex items-center justify-center">
               <Tag className="w-3 h-3" />
             </div>
-            <span>Rubriken ({categories.length + 1})</span>
+            <span>{t('categories', language)} ({categories.length + 1})</span>
             {isMobileExpanded ? (
               <ChevronUp className="w-4 h-4 text-stone-400" />
             ) : (
@@ -104,7 +108,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                 type="button"
                 onClick={() => onSelectCategory('all')}
                 className="p-1 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
-                title="Filter zurücksetzen"
+                title={t('resetFilter', language)}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -121,7 +125,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                 type="button"
                 onClick={() => scrollBy(-200)}
                 className="hidden sm:flex absolute left-0 z-10 w-7 h-7 rounded-full bg-white dark:bg-stone-800 shadow-md border border-stone-200 dark:border-stone-700 items-center justify-center text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 cursor-pointer"
-                aria-label="Nach links scrollen"
+                aria-label={t('scrollLeft', language)}
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -149,7 +153,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                     : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700/80 border border-stone-200/80 dark:border-stone-700/60'
                 }`}
               >
-                <span>Alle Themen</span>
+                <span>{t('allTopics', language)}</span>
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                     selectedCategory === 'all'
@@ -174,7 +178,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                   }`}
                 >
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  <span>Eilmeldungen</span>
+                  <span>{t('breakingNews', language)}</span>
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                       selectedCategory === 'breaking'
@@ -191,6 +195,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
               {categories.map((cat) => {
                 const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
                 const count = categoryCounts[cat] || 0;
+                const localizedName = getLocalizedCategoryName(cat, language);
                 return (
                   <button
                     key={cat}
@@ -203,7 +208,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                         : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700/80 border border-stone-200/80 dark:border-stone-700/60'
                     }`}
                   >
-                    <span>{cat}</span>
+                    <span>{localizedName}</span>
                     {count > 0 && (
                       <span
                         className={`text-[10px] px-1.5 py-0.2 rounded-full ${
@@ -226,7 +231,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                 type="button"
                 onClick={() => scrollBy(200)}
                 className="hidden sm:flex absolute right-0 z-10 w-7 h-7 rounded-full bg-white dark:bg-stone-800 shadow-md border border-stone-200 dark:border-stone-700 items-center justify-center text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 cursor-pointer"
-                aria-label="Nach rechts scrollen"
+                aria-label={t('scrollRight', language)}
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -242,7 +247,7 @@ export const CategoryChipsBar: React.FC<CategoryChipsBarProps> = ({
                     ? 'bg-amber-400 text-stone-950 font-bold'
                     : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                 }`}
-                title={wrapMode ? 'Horizontal scrollen' : 'Alle Rubriken aufklappen'}
+                title={wrapMode ? t('scrollCategories', language) : t('expandCategories', language)}
               >
                 <Layers className="w-3.5 h-3.5" />
               </button>

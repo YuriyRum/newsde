@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { NewsItem, FontSize } from '../types.ts';
-import { formatGermanTimeAgo } from '../utils/date.ts';
+import { NewsItem, FontSize, AppLanguage } from '../types.ts';
+import { formatTimeAgo } from '../utils/date.ts';
+import { t, getLocalizedCategoryName } from '../i18n/translations.ts';
+import { translateTextToRussian, translateParagraphsToRussian } from '../services/translationService.ts';
 import {
   X,
   ExternalLink,
@@ -11,7 +13,7 @@ import {
   ShieldCheck,
   Type,
   Loader2,
-  AlertCircle,
+  Languages,
 } from 'lucide-react';
 
 interface ArticleReaderModalProps {
@@ -20,6 +22,7 @@ interface ArticleReaderModalProps {
   isBookmarked: boolean;
   onToggleBookmark: (item: NewsItem) => void;
   onSelectCategory?: (category: string) => void;
+  language: AppLanguage;
 }
 
 interface ArticleExtractedContent {
@@ -34,24 +37,31 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   isBookmarked,
   onToggleBookmark,
   onSelectCategory,
+  language,
 }) => {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<ArticleExtractedContent | null>(null);
   const [useSerif, setUseSerif] = useState(true);
   const [readerFontSize, setReaderFontSize] = useState<FontSize>('base');
   const [copied, setCopied] = useState(false);
 
+  // Translation state for the reader
+  const [isRussianTranslated, setIsRussianTranslated] = useState(false);
+  const [translatingContent, setTranslatingContent] = useState(false);
+  const [translatedContent, setTranslatedContent] = useState<ArticleExtractedContent | null>(null);
+
   useEffect(() => {
     if (!item) {
       setContent(null);
-      setError(null);
+      setTranslatedContent(null);
+      setIsRussianTranslated(false);
       return;
     }
 
     let isMounted = true;
     setLoading(true);
-    setError(null);
+    setIsRussianTranslated(false);
+    setTranslatedContent(null);
 
     const isBackend =
       typeof window !== 'undefined' &&
@@ -64,7 +74,6 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
     const handleFallback = async () => {
       if (!isMounted) return;
-      // Attempt client-side JSON proxy extraction
       try {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(item.link)}`;
         const controller = new AbortController();
@@ -152,6 +161,42 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
     };
   }, [item]);
 
+  const handleToggleRussian = async () => {
+    if (isRussianTranslated) {
+      setIsRussianTranslated(false);
+      return;
+    }
+
+    if (translatedContent) {
+      setIsRussianTranslated(true);
+      return;
+    }
+
+    if (!content && !item) return;
+
+    setTranslatingContent(true);
+    try {
+      const origTitle = content?.title || item?.title || '';
+      const origParagraphs = content?.paragraphs && content.paragraphs.length > 0 ? content.paragraphs : (item?.summary ? [item.summary] : []);
+
+      const [ruTitle, ruParagraphs] = await Promise.all([
+        translateTextToRussian(origTitle),
+        translateParagraphsToRussian(origParagraphs),
+      ]);
+
+      setTranslatedContent({
+        title: ruTitle,
+        paragraphs: ruParagraphs,
+        leadImage: content?.leadImage || item?.imageUrl,
+      });
+      setIsRussianTranslated(true);
+    } catch {
+      // ignore
+    } finally {
+      setTranslatingContent(false);
+    }
+  };
+
   // Keyboard shortcut ESC to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -163,11 +208,15 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
   if (!item) return null;
 
+  const displayContent = isRussianTranslated && translatedContent ? translatedContent : content;
+  const displayTitle = displayContent?.title || item.title;
+  const localizedCategory = item.category ? getLocalizedCategoryName(item.category, language) : '';
+
   const handleShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: item.title,
+          title: displayTitle,
           text: item.summary,
           url: item.link,
         });
@@ -215,22 +264,42 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               {item.providerName}
             </span>
             <span className="text-xs text-stone-500 dark:text-stone-400 hidden sm:inline truncate">
-              {formatGermanTimeAgo(item.pubDate || item.timestamp)}
+              {formatTimeAgo(item.pubDate || item.timestamp, language)}
             </span>
           </div>
 
           {/* Reader customization options */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            {/* Translate to Russian toggle */}
+            <button
+              type="button"
+              onClick={handleToggleRussian}
+              disabled={translatingContent}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-colors flex items-center gap-1.5 ${
+                isRussianTranslated
+                  ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-300 dark:border-amber-700'
+                  : 'bg-stone-50 dark:bg-stone-800/80 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:bg-stone-100'
+              }`}
+              title={isRussianTranslated ? t('showOriginal', language) : t('translateToRussian', language)}
+            >
+              {translatingContent ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+              ) : (
+                <Languages className="w-3.5 h-3.5" />
+              )}
+              <span>{isRussianTranslated ? t('showOriginal', language) : t('translateToRussian', language)}</span>
+            </button>
+
             {/* Serif / Sans toggle */}
             <button
               type="button"
               onClick={() => setUseSerif(!useSerif)}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 ${
+              className={`px-2 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 ${
                 useSerif
                   ? 'bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border-stone-300 dark:border-stone-700'
                   : 'bg-transparent text-stone-500 border-transparent hover:bg-stone-100 dark:hover:bg-stone-800'
               }`}
-              title="Serif / Sans-Serif Schriftart umschalten"
+              title={t('switchFont', language)}
             >
               <Type className="w-3.5 h-3.5" />
               <span>{useSerif ? 'Serif' : 'Sans'}</span>
@@ -246,7 +315,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   else if (readerFontSize === 'base') setReaderFontSize('sm');
                 }}
                 className="px-2 py-0.5 rounded hover:bg-white dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300"
-                title="Schrift kleiner"
+                title={t('smallerText', language)}
               >
                 A-
               </button>
@@ -258,7 +327,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   else if (readerFontSize === 'lg') setReaderFontSize('xl');
                 }}
                 className="px-2 py-0.5 rounded hover:bg-white dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300"
-                title="Schrift größer"
+                title={t('largerText', language)}
               >
                 A+
               </button>
@@ -269,7 +338,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               type="button"
               onClick={handleShare}
               className="p-1.5 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title="Artikel teilen"
+              title={t('shareArticle', language)}
             >
               {copied ? (
                 <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -287,7 +356,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   ? 'text-amber-600 dark:text-amber-400'
                   : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
               }`}
-              title={isBookmarked ? 'Gespeichert' : 'Artikel merken'}
+              title={isBookmarked ? t('saved', language) : t('saveArticle', language)}
             >
               {isBookmarked ? (
                 <BookmarkCheck className="w-4 h-4 fill-current" />
@@ -304,7 +373,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               type="button"
               onClick={onClose}
               className="p-1.5 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              aria-label="Schließen"
+              aria-label={t('close', language)}
             >
               <X className="w-5 h-5" />
             </button>
@@ -317,14 +386,14 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           <div className="mb-6 flex items-center justify-between px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span className="font-semibold">Werbefreier Lesemodus aktiv</span>
+              <span className="font-semibold">{t('adFreeActive', language)}</span>
             </div>
-            <span className="text-[11px] opacity-80">Keine Tracker & keine Werbung</span>
+            <span className="text-[11px] opacity-80">{t('noTrackers', language)}</span>
           </div>
 
           {/* Article Header */}
           <div className="mb-6">
-            {item.category && (
+            {localizedCategory && (
               <button
                 type="button"
                 onClick={() => {
@@ -334,32 +403,40 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   }
                 }}
                 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 hover:underline mb-2 inline-block cursor-pointer"
-                title={`Nach ${item.category} filtern`}
+                title={`${t('categories', language)}: ${localizedCategory}`}
               >
-                {item.category}
+                {localizedCategory}
               </button>
             )}
             <h1
               className={`text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-stone-900 dark:text-stone-100 leading-tight ${fontClass}`}
             >
-              {content?.title || item.title}
+              {displayTitle}
             </h1>
 
-            <div className="mt-3 flex items-center gap-3 text-xs text-stone-500 dark:text-stone-400">
+            <div className="mt-3 flex items-center gap-3 text-xs text-stone-500 dark:text-stone-400 flex-wrap">
               <span className="font-semibold text-stone-700 dark:text-stone-300">
-                Quelle: {item.providerName}
+                {t('source', language)}: {item.providerName}
               </span>
               <span>•</span>
-              <span>{formatGermanTimeAgo(item.pubDate || item.timestamp)}</span>
+              <span>{formatTimeAgo(item.pubDate || item.timestamp, language)}</span>
+              {isRussianTranslated && (
+                <>
+                  <span>•</span>
+                  <span className="font-bold text-amber-700 dark:text-amber-400">
+                    {t('translatedTag', language)}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
           {/* Lead Image if available */}
-          {(content?.leadImage || item.imageUrl) && (
+          {(displayContent?.leadImage || item.imageUrl) && (
             <div className="mb-8 rounded-2xl overflow-hidden bg-stone-100 dark:bg-stone-800 shadow-sm border border-stone-200 dark:border-stone-800">
               <img
-                src={content?.leadImage || item.imageUrl}
-                alt={item.title}
+                src={displayContent?.leadImage || item.imageUrl}
+                alt={displayTitle}
                 className="w-full max-h-96 object-cover"
                 loading="lazy"
               />
@@ -370,14 +447,14 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           {loading && (
             <div className="py-12 flex flex-col items-center justify-center text-stone-400 gap-3">
               <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-              <p className="text-xs font-medium">Artikeltext wird werbefrei geladen...</p>
+              <p className="text-xs font-medium">{t('loadingArticle', language)}</p>
             </div>
           )}
 
           {/* Extracted Paragraphs */}
-          {!loading && content && content.paragraphs.length > 0 && (
+          {!loading && displayContent && displayContent.paragraphs.length > 0 && (
             <div className={`text-stone-800 dark:text-stone-200 ${fontClass}`}>
-              {content.paragraphs.map((p, idx) => (
+              {displayContent.paragraphs.map((p, idx) => (
                 <p key={idx} className={paragraphSizeClass}>
                   {p}
                 </p>
@@ -385,10 +462,10 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
             </div>
           )}
 
-          {!loading && (!content || content.paragraphs.length === 0) && (
+          {!loading && (!displayContent || displayContent.paragraphs.length === 0) && (
             <div className="p-6 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-800 text-center my-6">
               <p className="text-sm text-stone-600 dark:text-stone-400 mb-3">
-                {item.summary || 'Klicke unten, um den vollständigen Artikel im Original zu lesen.'}
+                {item.summary || t('clickBelowForOriginal', language)}
               </p>
             </div>
           )}
@@ -397,10 +474,10 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           <div className="mt-10 p-4 sm:p-5 rounded-2xl bg-stone-100/80 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
-                Originalquelle besuchen
+                {t('visitOriginalSource', language)}
               </h4>
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                Vollständiger Bericht und Multimedia-Inhalte bei {item.providerName}
+                {t('fullReportAt', language)} {item.providerName}
               </p>
             </div>
             <a
@@ -410,7 +487,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               rel="noopener noreferrer"
               className="px-4 py-2 rounded-xl text-xs font-bold text-stone-900 bg-amber-400 hover:bg-amber-300 active:bg-amber-500 transition-all inline-flex items-center gap-2 shrink-0 shadow-xs"
             >
-              <span>{item.providerName} öffnen</span>
+              <span>{item.providerName} {t('open', language)}</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>

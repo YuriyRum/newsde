@@ -1,6 +1,7 @@
 import React from 'react';
-import { NewsItem } from '../types.ts';
-import { formatGermanTimeAgo } from '../utils/date.ts';
+import { NewsItem, AppLanguage } from '../types.ts';
+import { formatTimeAgo } from '../utils/date.ts';
+import { t } from '../i18n/translations.ts';
 import { X, BookmarkX, Trash2, BookOpen, ExternalLink, Bookmark } from 'lucide-react';
 
 interface SavedArticlesDrawerProps {
@@ -10,6 +11,7 @@ interface SavedArticlesDrawerProps {
   onRemoveSaved: (id: string) => void;
   onClearAll: () => void;
   onOpenReader: (item: NewsItem) => void;
+  language: AppLanguage;
 }
 
 export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
@@ -19,6 +21,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
   onRemoveSaved,
   onClearAll,
   onOpenReader,
+  language,
 }) => {
   if (!isOpen) return null;
 
@@ -42,10 +45,10 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-stone-900 dark:text-stone-100">
-                Gespeicherte Artikel
+                {t('savedArticles', language)}
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400">
-                {savedItems.length} {savedItems.length === 1 ? 'Artikel' : 'Artikel'} in deiner Leseliste
+                {savedItems.length} {t('inReadingList', language)}
               </p>
             </div>
           </div>
@@ -54,6 +57,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
             type="button"
             onClick={onClose}
             className="p-2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800"
+            aria-label={t('close', language)}
           >
             <X className="w-5 h-5" />
           </button>
@@ -65,10 +69,10 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
             <div className="py-16 text-center text-stone-400 space-y-3">
               <BookmarkX className="w-12 h-12 mx-auto stroke-1 text-stone-300 dark:text-stone-700" />
               <p className="text-sm font-semibold text-stone-600 dark:text-stone-400">
-                Noch keine Artikel gespeichert
+                {t('noSavedArticles', language)}
               </p>
               <p className="text-xs text-stone-400 dark:text-stone-500 max-w-xs mx-auto">
-                Tippe auf das Lesezeichen-Symbol bei beliebigen Nachrichten, um sie für später zu sichern.
+                {t('noSavedArticlesSubtitle', language)}
               </p>
             </div>
           ) : (
@@ -86,7 +90,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
                       {item.providerName}
                     </span>
                     <span className="text-[11px] text-stone-400 dark:text-stone-500 ml-auto">
-                      {formatGermanTimeAgo(item.pubDate || item.timestamp)}
+                      {formatTimeAgo(item.pubDate || item.timestamp, language)}
                     </span>
                   </div>
 
@@ -111,7 +115,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
                     className="font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1"
                   >
                     <BookOpen className="w-3.5 h-3.5" />
-                    <span>Lesen</span>
+                    <span>{t('read', language)}</span>
                   </button>
 
                   <div className="flex items-center gap-2">
@@ -120,7 +124,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
-                      title="Original öffnen"
+                      title={t('visitOriginal', language)}
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
@@ -128,7 +132,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
                       type="button"
                       onClick={() => onRemoveSaved(item.id)}
                       className="p-1 text-rose-500 hover:text-rose-700 rounded"
-                      title="Aus Liste entfernen"
+                      title={t('delete', language)}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -148,7 +152,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
               onClick={onClearAll}
               className="text-xs text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-semibold"
             >
-              <Trash2 className="w-3.5 h-3.5" /> Alle entfernen
+              <Trash2 className="w-3.5 h-3.5" /> {t('clearAll', language)}
             </button>
             <button
               id="btn-close-saved-bottom"
@@ -156,7 +160,7 @@ export const SavedArticlesDrawer: React.FC<SavedArticlesDrawerProps> = ({
               onClick={onClose}
               className="px-4 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-stone-300 dark:hover:bg-stone-700 transition-colors"
             >
-              Fertig
+              {t('done', language)}
             </button>
           </div>
         )}

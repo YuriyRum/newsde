@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { GERMAN_NEWS_PROVIDERS } from '../data/providers.ts';
+import { AppLanguage } from '../types.ts';
+import { t } from '../i18n/translations.ts';
 import { Check, X, SlidersHorizontal, ExternalLink, ShieldCheck, CheckCheck } from 'lucide-react';
 
 interface ProviderSelectorModalProps {
@@ -7,6 +9,7 @@ interface ProviderSelectorModalProps {
   onClose: () => void;
   selectedProviders: string[];
   onChange: (newSelected: string[]) => void;
+  language: AppLanguage;
 }
 
 export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
@@ -14,6 +17,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
   onClose,
   selectedProviders,
   onChange,
+  language,
 }) => {
   const [tempSelected, setTempSelected] = useState<string[]>(selectedProviders);
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -88,13 +92,13 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold tracking-tight text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                Nachrichtenquellen wählen
+                {t('selectNewsSources', language)}
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
                   {tempSelected.length}/{GERMAN_NEWS_PROVIDERS.length}
                 </span>
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400">
-                Wähle deine bevorzugten deutschen Qualitätsmedien (Mehrfachauswahl)
+                {t('selectNewsSourcesSubtitle', language)}
               </p>
             </div>
           </div>
@@ -102,7 +106,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
             id="btn-close-provider-modal"
             onClick={onClose}
             className="p-2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-            aria-label="Schließen"
+            aria-label={t('close', language)}
           >
             <X className="w-5 h-5" />
           </button>
@@ -111,7 +115,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
         {/* Quick Presets */}
         <div className="px-4 py-3 bg-stone-100/60 dark:bg-stone-800/40 border-b border-stone-200 dark:border-stone-800 flex flex-wrap gap-2 items-center text-xs">
           <span className="font-semibold text-stone-600 dark:text-stone-300 mr-1 flex items-center gap-1">
-            <CheckCheck className="w-3.5 h-3.5" /> Schnellwahl:
+            <CheckCheck className="w-3.5 h-3.5" /> {t('quickSelect', language)}:
           </span>
           <button
             id="btn-preset-all"
@@ -119,7 +123,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
             onClick={selectAll}
             className="px-2.5 py-1 rounded-full bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 font-medium text-stone-700 dark:text-stone-200 hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
           >
-            Alle auswählen
+            {t('selectAll', language)}
           </button>
           <button
             id="btn-preset-tagesschau-dw"
@@ -135,7 +139,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
             onClick={selectPublicOnly}
             className="px-2.5 py-1 rounded-full bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 font-medium text-stone-700 dark:text-stone-200 hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
           >
-            Öffentlich-Rechtlich (ARD/ZDF/DW/DLF)
+            {t('publicBroadcasters', language)}
           </button>
           <button
             id="btn-preset-press"
@@ -143,7 +147,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
             onClick={selectPressOnly}
             className="px-2.5 py-1 rounded-full bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 font-medium text-stone-700 dark:text-stone-200 hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
           >
-            Qualitätspresse
+            {t('qualityPress', language)}
           </button>
         </div>
 
@@ -158,7 +162,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
                 : 'border-transparent text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
-            Alle Quellen ({GERMAN_NEWS_PROVIDERS.length})
+            {t('allSources', language)} ({GERMAN_NEWS_PROVIDERS.length})
           </button>
           <button
             id="tab-public-providers"
@@ -169,7 +173,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
                 : 'border-transparent text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
-            Öffentlich-Rechtlich
+            {t('publicBroadcasters', language)}
           </button>
           <button
             id="tab-press-providers"
@@ -180,7 +184,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
                 : 'border-transparent text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
-            Leitmedien & Presse
+            {t('qualityPress', language)}
           </button>
           <button
             id="tab-tech-providers"
@@ -191,7 +195,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
                 : 'border-transparent text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
             }`}
           >
-            Digital & Tech
+            {t('techAndDigital', language)}
           </button>
         </div>
 
@@ -274,7 +278,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
         <div className="p-4 border-t border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900/90 flex items-center justify-between gap-3">
           <div className="text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>100% Werbefrei & Direktabruf</span>
+            <span>{t('directFetchGuarantee', language)}</span>
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -284,7 +288,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-800 transition-colors"
             >
-              Abbrechen
+              {t('cancel', language)}
             </button>
             <button
               id="btn-apply-provider-modal"
@@ -293,7 +297,7 @@ export const ProviderSelectorModal: React.FC<ProviderSelectorModalProps> = ({
               className="px-5 py-2 rounded-xl text-xs font-bold text-stone-900 bg-amber-400 hover:bg-amber-300 active:bg-amber-500 shadow-sm transition-all flex items-center gap-1.5"
             >
               <Check className="w-4 h-4" />
-              {tempSelected.length} {tempSelected.length === 1 ? 'Quelle' : 'Quellen'} anwenden
+              {tempSelected.length} {t('applySources', language)}
             </button>
           </div>
         </div>

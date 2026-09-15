@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ViewLayout, ThemeMode, FontSize } from '../types.ts';
+import { ViewLayout, ThemeMode, FontSize, AppLanguage } from '../types.ts';
+import { t } from '../i18n/translations.ts';
 import {
   Newspaper,
   RotateCw,
@@ -14,6 +15,7 @@ import {
   Bookmark,
   SlidersHorizontal,
   ShieldCheck,
+  Languages,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -32,6 +34,8 @@ interface HeaderProps {
   onRefresh: () => void;
   savedCount: number;
   onOpenSaved: () => void;
+  language: AppLanguage;
+  onLanguageChange: (lang: AppLanguage) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -50,6 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   savedCount,
   onOpenSaved,
+  language,
+  onLanguageChange,
 }) => {
   const [showSearchMobile, setShowSearchMobile] = useState(false);
 
@@ -64,6 +70,10 @@ export const Header: React.FC<HeaderProps> = ({
     else if (fontSize === 'base') onFontSizeChange('lg');
     else if (fontSize === 'lg') onFontSizeChange('xl');
     else onFontSizeChange('sm');
+  };
+
+  const toggleLanguage = () => {
+    onLanguageChange(language === 'de' ? 'ru' : 'de');
   };
 
   return (
@@ -81,14 +91,14 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-base sm:text-lg tracking-tight text-stone-900 dark:text-stone-100">
-                  Deutschland News
+                  {t('appTitle', language)}
                 </span>
                 <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300/40">
-                  <ShieldCheck className="w-3 h-3" /> Werbefrei
+                  <ShieldCheck className="w-3 h-3" /> {t('adFreeBadge', language)}
                 </span>
               </div>
               <p className="text-[11px] text-stone-500 dark:text-stone-400 hidden sm:block">
-                Tagesschau • DW • ZDF • DLF • Spiegel & Qualitätsmedien
+                {t('appSubtitle', language)}
               </p>
             </div>
           </div>
@@ -100,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
               <input
                 id="search-input-desktop"
                 type="text"
-                placeholder="Nachrichten nach Begriffen filtern..."
+                placeholder={t('searchPlaceholder', language)}
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
                 className="w-full pl-9 pr-8 py-2 rounded-xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-sm text-stone-900 dark:text-stone-100 placeholder-stone-400 focus:outline-hidden focus:ring-2 focus:ring-amber-400/50"
@@ -119,6 +129,24 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Actions & Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Language Switcher Button */}
+            <button
+              id="btn-switch-language"
+              type="button"
+              onClick={toggleLanguage}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                language === 'ru'
+                  ? 'bg-amber-100 dark:bg-amber-950/70 border-amber-400 text-amber-950 dark:text-amber-200 shadow-xs'
+                  : 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 border-stone-200 dark:border-stone-700 text-stone-800 dark:text-stone-200'
+              }`}
+              title={language === 'de' ? 'На русский язык (Перевести)' : 'Auf Deutsch umschalten'}
+            >
+              <Languages className={`w-4 h-4 ${language === 'ru' ? 'text-amber-600 dark:text-amber-400' : 'text-stone-500'}`} />
+              <span className="font-extrabold uppercase tracking-wide">
+                {language === 'de' ? '🇩🇪 DE' : '🇷🇺 RU'}
+              </span>
+            </button>
+
             {/* Mobile Search Toggle */}
             <button
               id="btn-toggle-search-mobile"
@@ -138,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold transition-all border border-stone-200 dark:border-stone-700"
             >
               <SlidersHorizontal className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span className="hidden sm:inline">Quellen:</span>
+              <span className="hidden sm:inline">{t('sources', language)}:</span>
               <span className="px-1.5 py-0.2 rounded bg-amber-400 text-stone-950 font-black text-[11px]">
                 {selectedProvidersCount}/{totalProvidersCount}
               </span>
@@ -155,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 shadow-2xs'
                     : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                 }`}
-                title="Kacheln (Magazinansicht)"
+                title={t('viewTiles', language)}
               >
                 <LayoutGrid className="w-4 h-4" />
               </button>
@@ -168,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 shadow-2xs'
                     : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                 }`}
-                title="Kompaktliste"
+                title={t('viewCompact', language)}
               >
                 <List className="w-4 h-4" />
               </button>
@@ -181,7 +209,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 shadow-2xs'
                     : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
                 }`}
-                title="Schlagzeilen-Liste"
+                title={t('viewHeadline', language)}
               >
                 <AlignLeft className="w-4 h-4" />
               </button>
@@ -193,7 +221,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={cycleFontSize}
               className="p-2 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl text-xs font-bold"
-              title={`Schriftgröße anpassen (Aktuell: ${fontSize.toUpperCase()})`}
+              title={`${t('changeFontSize', language)} (${t('currentFont', language)}: ${fontSize.toUpperCase()})`}
             >
               <span className="font-serif">A{fontSize === 'xl' ? '++' : fontSize === 'lg' ? '+' : ''}</span>
             </button>
@@ -204,7 +232,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={cycleTheme}
               className="p-2 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl"
-              title={`Design wechseln (${theme})`}
+              title={`${t('changeTheme', language)} (${theme})`}
             >
               {theme === 'light' ? (
                 <Sun className="w-4.5 h-4.5 text-amber-500" />
@@ -221,7 +249,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={onOpenSaved}
               className="relative p-2 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl"
-              title="Gespeicherte Artikel"
+              title={t('savedArticles', language)}
             >
               <Bookmark className="w-4.5 h-4.5" />
               {savedCount > 0 && (
@@ -238,7 +266,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onRefresh}
               disabled={isRefreshing}
               className="p-2 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-xl transition-all disabled:opacity-50"
-              title="Nachrichten aktualisieren"
+              title={t('refresh', language)}
             >
               <RotateCw className={`w-4.5 h-4.5 ${isRefreshing ? 'animate-spin text-amber-600' : ''}`} />
             </button>
@@ -253,7 +281,7 @@ export const Header: React.FC<HeaderProps> = ({
               <input
                 id="search-input-mobile"
                 type="text"
-                placeholder="Nachrichten filtern..."
+                placeholder={t('searchMobilePlaceholder', language)}
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
                 autoFocus
