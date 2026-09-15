@@ -1,0 +1,6 @@
+{
+  "name": "Deutschland News Aggregator",
+  "description": "Ad-free news aggregator collecting top news from Tagesschau, Deutsche Welle, and reliable German news providers with customizable provider filters and mobile-friendly tiles layout.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
